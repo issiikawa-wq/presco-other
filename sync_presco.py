@@ -222,19 +222,6 @@ def format_datetime_for_google(date_string):
         return date_string.split('+')[0].strip()
 
 
-def is_after_cutoff_date(date_string, cutoff='2026/02/20 00:00:00'):
-    """
-    指定した日時がカットオフ日時以降かどうかを判定
-    """
-    try:
-        date_obj = datetime.strptime(date_string, '%Y/%m/%d %H:%M:%S')
-        cutoff_obj = datetime.strptime(cutoff, '%Y/%m/%d %H:%M:%S')
-        return date_obj >= cutoff_obj
-    except Exception as e:
-        print(f"[{datetime.now()}] 日付比較エラー: {date_string} - {str(e)}")
-        return False
-
-
 def get_conversion_name(site_name):
     """
     サイト名からコンバージョン名を取得
@@ -254,13 +241,9 @@ def transform_csv_data(csv_path, existing_gclids):
     # 対象サイト名
     target_sites = ['Fast Baito 介護特化', 'Fast Baito']
     
-    # カットオフ日時（この日時以降のデータのみ取得）
-    cutoff_datetime = '2026/02/19 21:00:00'
-    
     # カウンター
     total_rows = 0
     site_mismatch_count = 0
-    date_filtered_count = 0
     no_gclid_count = 0
     duplicate_count = 0
     new_rows_count = 0
@@ -323,11 +306,6 @@ def transform_csv_data(csv_path, existing_gclids):
         # D列: 成果発生日時
         action_datetime = row[3] if len(row) > 3 else ''
         
-        # カットオフ日時チェック
-        if not is_after_cutoff_date(action_datetime, cutoff_datetime):
-            date_filtered_count += 1
-            continue
-        
         # M列: リファラ
         referrer = row[12] if len(row) > 12 else ''
         
@@ -382,7 +360,6 @@ def transform_csv_data(csv_path, existing_gclids):
     print(f"[{datetime.now()}] 変換結果:")
     print(f"  - 総データ数: {total_rows}行")
     print(f"  - サイト名不一致で除外: {site_mismatch_count}行")
-    print(f"  - 日付フィルタで除外: {date_filtered_count}行")
     print(f"  - GCLID未検出で除外: {no_gclid_count}行")
     print(f"  - 重複で除外: {duplicate_count}行")
     print(f"  - 新規追加: {new_rows_count}行")
