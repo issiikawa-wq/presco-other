@@ -12,6 +12,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 def login_and_download_csv():
     """
     Presco.aiにログインしてCSVをダウンロード
+    集計基準：成果判定日時、期間：1週間で検索
     """
     print("=" * 60)
     print(f"[{datetime.now()}] Presco自動同期を開始します（介護特化・Fast Baito）")
@@ -84,6 +85,68 @@ def login_and_download_csv():
             # 成果一覧ページに移動
             print(f"[{datetime.now()}] 成果一覧ページに移動します")
             page.goto('https://presco.ai/partner/actionLog/list', timeout=60000)
+            
+            # ページが完全に読み込まれるまで待機
+            time.sleep(3)
+            
+            # 集計基準を「成果判定日時」に変更
+            print(f"[{datetime.now()}] 集計基準を「成果判定日時」に変更します")
+            try:
+                # ラジオボタンのセレクタを試行
+                # 通常のラジオボタンの場合
+                page.click('input[name="dateType"][value="judgeDate"]', timeout=5000)
+            except:
+                try:
+                    # ラベルをクリックする方法
+                    page.click('label:has-text("成果判定日時")', timeout=5000)
+                except:
+                    print(f"[{datetime.now()}] 警告: 集計基準の変更に失敗（デフォルトのまま続行）")
+            
+            time.sleep(1)
+            
+            # 期間を「1週間」に変更
+            print(f"[{datetime.now()}] 期間を「1週間」に変更します")
+            try:
+                # ボタンやリンクの場合
+                page.click('button:has-text("1週間"), a:has-text("1週間")', timeout=5000)
+            except:
+                try:
+                    # クラス名やIDで指定する方法
+                    page.click('.period-button:has-text("1週間")', timeout=5000)
+                except:
+                    print(f"[{datetime.now()}] 警告: 期間の変更に失敗（デフォルトのまま続行）")
+            
+            time.sleep(1)
+            
+            # 「検索条件で絞り込む」ボタンをクリック
+            print(f"[{datetime.now()}] 検索条件で絞り込むをクリックします")
+            try:
+                # 複数のセレクタを試行
+                selectors = [
+                    'button:has-text("検索条件で絞り込む")',
+                    'input[type="submit"][value="検索条件で絞り込む"]',
+                    'button.filter-button--submit',
+                    '.filter-button--submit'
+                ]
+                
+                clicked = False
+                for selector in selectors:
+                    try:
+                        page.click(selector, timeout=3000)
+                        clicked = True
+                        break
+                    except:
+                        continue
+                
+                if not clicked:
+                    print(f"[{datetime.now()}] 警告: 検索ボタンのクリックに失敗")
+                else:
+                    # 検索結果の読み込みを待機
+                    time.sleep(5)
+                    print(f"[{datetime.now()}] 検索条件を適用しました")
+                    
+            except Exception as e:
+                print(f"[{datetime.now()}] 警告: 検索ボタンのクリック中にエラー - {str(e)}")
             
             # CSVダウンロードボタンが表示されるまで待機
             page.wait_for_selector('#csv-link', state='visible', timeout=30000)
