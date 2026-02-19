@@ -222,7 +222,7 @@ def format_datetime_for_google(date_string):
         return date_string.split('+')[0].strip()
 
 
-def is_after_cutoff_date(date_string, cutoff='2026/02/19 21:00:00'):
+def is_after_cutoff_date(date_string, cutoff='2026/02/20 00:00:00'):
     """
     指定した日時がカットオフ日時以降かどうかを判定
     """
