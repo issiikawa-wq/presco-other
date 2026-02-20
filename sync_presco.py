@@ -63,7 +63,17 @@ def _attempt_login_and_download(email, password):
 
             print("ログイン成功")
 
-            page.goto("https://presco.ai/partner/actionLog/list")
+# 成果一覧メニューをクリックして遷移
+print("成果一覧ページへ遷移")
+
+try:
+    page.click('a:has-text("成果一覧")', timeout=10000)
+except:
+    # メニュー内にある場合
+    page.click('text=成果一覧', timeout=10000)
+
+page.wait_for_load_state("networkidle")
+time.sleep(3)
             time.sleep(5)
 
             # ===============================
