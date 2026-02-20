@@ -24,11 +24,6 @@ def download_csv_for_period(page, period, save_path):
 
     time.sleep(1)
 
-    # 期間が正しく変わったか確認（重要）
-    start_date = page.input_value('input[name="startDate"]')
-    end_date = page.input_value('input[name="endDate"]')
-    print("現在の期間:", start_date, "〜", end_date)
-
     # 検索実行
     page.click('button:has-text("検索条件で絞り込む")')
     time.sleep(5)
