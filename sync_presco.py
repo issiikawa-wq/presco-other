@@ -13,7 +13,36 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 
 # ==========================================
-# Presco ログイン + 2日分取得
+# 期間指定CSV取得
+# ==========================================
+def download_csv_for_period(page, period, save_path):
+
+    print(f"{period} を選択")
+
+    if period == "yesterday":
+        page.click('a[onclick="setYesterday()"]', timeout=10000)
+    elif period == "today":
+        page.click('a[onclick="setToday()"]', timeout=10000)
+
+    time.sleep(1)
+
+    # 🔥 検索ボタン（div対応）
+    page.click('.filter-button--submit', timeout=10000)
+    time.sleep(5)
+
+    page.wait_for_selector("#csv-link", timeout=30000)
+
+    with page.expect_download(timeout=60000) as download_info:
+        page.click("#csv-link")
+
+    download = download_info.value
+    download.save_as(save_path)
+
+    print(f"{period} CSV保存完了")
+
+
+# ==========================================
+# ログイン＆2日分取得
 # ==========================================
 def login_and_download():
 
@@ -29,7 +58,6 @@ def login_and_download():
                 "--disable-dev-shm-usage",
                 "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process"
             ]
         )
 
@@ -42,15 +70,13 @@ def login_and_download():
         page = context.new_page()
 
         try:
-            # ----------------------------------
-            # ログインページアクセス（リトライ）
-            # ----------------------------------
+            # ログインページ
             for i in range(3):
                 try:
                     page.goto("https://presco.ai/partner/", timeout=60000)
                     break
                 except PlaywrightError:
-                    print("ログインページアクセス再試行")
+                    print("ログインページ再試行")
                     time.sleep(5)
 
             page.wait_for_selector('input[name="username"]', timeout=30000)
@@ -63,9 +89,7 @@ def login_and_download():
 
             print("ログイン成功")
 
-            # ----------------------------------
-            # 成果一覧ページへ
-            # ----------------------------------
+            # 成果一覧ページ
             page.goto("https://presco.ai/partner/actionLog/list", timeout=60000)
             page.wait_for_load_state("networkidle")
             time.sleep(3)
@@ -76,6 +100,7 @@ def login_and_download():
                 'input[type="radio"][value="actionDate"]',
                 'label:has-text("成果発生日時")'
             ]
+
             for selector in selectors:
                 try:
                     page.click(selector, timeout=5000)
@@ -95,34 +120,6 @@ def login_and_download():
 
         finally:
             browser.close()
-
-
-# ==========================================
-# 期間指定クリック（onclick直指定）
-# ==========================================
-def download_csv_for_period(page, period, save_path):
-
-    print(f"{period} を選択")
-
-    if period == "yesterday":
-        page.click('a[onclick="setYesterday()"]', timeout=10000)
-    elif period == "today":
-        page.click('a[onclick="setToday()"]', timeout=10000)
-
-    time.sleep(1)
-
-    page.click('button:has-text("検索条件で絞り込む")', timeout=10000)
-    time.sleep(5)
-
-    page.wait_for_selector("#csv-link", timeout=30000)
-
-    with page.expect_download(timeout=60000) as download_info:
-        page.click("#csv-link")
-
-    download = download_info.value
-    download.save_as(save_path)
-
-    print(f"{period} CSV保存完了")
 
 
 # ==========================================
@@ -199,7 +196,7 @@ def merge_csv(yesterday_path, today_path):
 
 
 # ==========================================
-# Google Sheets 書き込み
+# Google Sheets
 # ==========================================
 def upload_to_sheet(data):
 
