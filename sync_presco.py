@@ -6,8 +6,7 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright._impl._errors import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -15,31 +14,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 # =====================================
 # Presco ログイン＆CSV取得（1週間）
 # =====================================
-def login_and_download_csv(max_retries=3):
-
-    print("=" * 60)
-    print(f"[{datetime.now()}] Presco自動同期開始（1週間取得）")
-    print("=" * 60)
+def login_and_download_csv():
 
     email = os.getenv("PRESCO_EMAIL")
     password = os.getenv("PRESCO_PASSWORD")
-
-    if not email or not password:
-        raise Exception("PRESCO_EMAIL または PRESCO_PASSWORD 未設定")
-
-    for attempt in range(max_retries):
-        try:
-            return _attempt_login_and_download(email, password)
-        except (PlaywrightError, PlaywrightTimeoutError):
-            if attempt < max_retries - 1:
-                wait = (attempt + 1) * 5
-                print(f"リトライします（{wait}秒待機）")
-                time.sleep(wait)
-            else:
-                raise
-
-
-def _attempt_login_and_download(email, password):
 
     with sync_playwright() as p:
 
@@ -64,22 +42,22 @@ def _attempt_login_and_download(email, password):
         try:
             # ログイン
             page.goto("https://presco.ai/partner/", timeout=60000)
-            page.wait_for_selector('input[name="username"]', timeout=30000)
+            page.wait_for_selector('input[name="username"]')
 
             page.fill('input[name="username"]', email)
             page.fill('input[name="password"]', password)
 
-            with page.expect_navigation(timeout=60000):
+            with page.expect_navigation():
                 page.click('input[type="submit"]')
 
             print("ログイン成功")
 
             # 成果一覧ページ
-            page.goto("https://presco.ai/partner/actionLog/list", timeout=60000)
+            page.goto("https://presco.ai/partner/actionLog/list")
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 集計基準を成果発生日時に変更
+            # 成果発生日時に変更
             selectors = [
                 'input[name="dateType"][value="actionDate"]',
                 'input[type="radio"][value="actionDate"]',
@@ -95,17 +73,17 @@ def _attempt_login_and_download(email, password):
 
             time.sleep(1)
 
-            # 1週間選択
-            page.click('button:has-text("1週間")', timeout=10000)
+            # 🔥 1週間（onclick直接指定）
+            page.click('a[onclick="setWeek()"]', timeout=10000)
             time.sleep(1)
 
             # 検索ボタン（div）
             page.click('.filter-button--submit', timeout=10000)
             time.sleep(5)
 
-            page.wait_for_selector("#csv-link", timeout=30000)
+            page.wait_for_selector("#csv-link")
 
-            with page.expect_download(timeout=60000) as download_info:
+            with page.expect_download() as download_info:
                 page.click("#csv-link")
 
             download = download_info.value
