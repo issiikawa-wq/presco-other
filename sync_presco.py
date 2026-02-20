@@ -12,9 +12,9 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 
-# ===============================
-# ログイン＆CSV取得
-# ===============================
+# =====================================
+# Presco ログイン＆CSV取得
+# =====================================
 def login_and_download_csv(max_retries=3):
 
     print("=" * 60)
@@ -25,15 +25,15 @@ def login_and_download_csv(max_retries=3):
     password = os.getenv("PRESCO_PASSWORD")
 
     if not email or not password:
-        raise Exception("認証情報未設定")
+        raise Exception("PRESCO_EMAIL または PRESCO_PASSWORD 未設定")
 
     for attempt in range(max_retries):
         try:
             return _attempt_login_and_download(email, password)
-        except (PlaywrightError, PlaywrightTimeoutError) as e:
+        except (PlaywrightError, PlaywrightTimeoutError):
             if attempt < max_retries - 1:
                 wait = (attempt + 1) * 5
-                print(f"リトライ {wait}秒待機...")
+                print(f"リトライします（{wait}秒待機）")
                 time.sleep(wait)
             else:
                 raise
@@ -64,13 +64,12 @@ def _attempt_login_and_download(email, password):
 
             print("ログイン成功")
 
-            # 成果一覧ページへ
+            # 成果一覧へ
             page.goto("https://presco.ai/partner/actionLog/list")
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 集計基準を成果発生日時に変更
-            print("成果発生日時に変更")
+            # 成果発生日時に変更
             try:
                 selectors = [
                     'input[name="dateType"][value="actionDate"]',
@@ -96,7 +95,7 @@ def _attempt_login_and_download(email, password):
 
             time.sleep(1)
 
-            # 検索実行
+            # 検索
             try:
                 page.click('button:has-text("検索条件で絞り込む")', timeout=5000)
             except:
@@ -121,10 +120,11 @@ def _attempt_login_and_download(email, password):
             browser.close()
 
 
-# ===============================
+# =====================================
 # カットオフ（昨日0時以降）
-# ===============================
+# =====================================
 def get_cutoff_datetime():
+
     JST = ZoneInfo("Asia/Tokyo")
     now = datetime.now(JST)
 
@@ -136,6 +136,7 @@ def get_cutoff_datetime():
 
 
 def is_after_cutoff(date_string, cutoff):
+
     try:
         JST = ZoneInfo("Asia/Tokyo")
         dt = datetime.strptime(date_string, "%Y/%m/%d %H:%M:%S")
@@ -145,9 +146,9 @@ def is_after_cutoff(date_string, cutoff):
         return False
 
 
-# ===============================
+# =====================================
 # CSV変換
-# ===============================
+# =====================================
 def extract_gclid(url):
     if not url:
         return ""
@@ -165,7 +166,7 @@ def transform_csv(csv_path):
     with open(csv_path, "r", encoding="shift_jis", errors="ignore") as f:
         reader = list(csv.reader(f))
 
-    data = reader[1:]
+    data = reader[1:]  # ヘッダー除外
 
     results = []
     results.append(["Parameters:TimeZone=Asia/Tokyo"])
@@ -181,19 +182,14 @@ def transform_csv(csv_path):
 
     for row in data:
 
-    if len(row) < 18:
-        continue
+        if len(row) < 18:
+            continue
 
-    site = row[5]
+        site = row[5]
+        if site not in target_sites:
+            continue
 
-    # ▼▼▼ ここに追加 ▼▼▼
-    action_datetime = row[3]
-    print("DEBUG DATE:", action_datetime)
-    # ▲▲▲ ここまで ▲▲▲
-
-    if site not in target_sites:
-        continue
-
+        action_datetime = row[3]
 
         if not is_after_cutoff(action_datetime, cutoff):
             continue
@@ -207,11 +203,16 @@ def transform_csv(csv_path):
 
         seen.add(gclid)
 
-        value = "3000" if site == "Fast Baito 介護特化" else str(int(float(row[17])))
+        if site == "Fast Baito 介護特化":
+            value = "3000"
+            conv_name = "介護オフラインCV"
+        else:
+            value = str(int(float(row[17])))
+            conv_name = "オフラインCV"
 
         results.append([
             gclid,
-            "介護オフラインCV" if site == "Fast Baito 介護特化" else "オフラインCV",
+            conv_name,
             action_datetime,
             value,
             "JPY"
@@ -222,9 +223,9 @@ def transform_csv(csv_path):
     return results
 
 
-# ===============================
-# Sheets書き込み
-# ===============================
+# =====================================
+# Google Sheets 書き込み
+# =====================================
 def upload_to_sheet(csv_path):
 
     creds_json = os.getenv("GOOGLE_CREDENTIALS")
@@ -251,6 +252,9 @@ def upload_to_sheet(csv_path):
     print("スプレッドシート更新完了")
 
 
+# =====================================
+# main
+# =====================================
 def main():
     csv_path = login_and_download_csv()
     upload_to_sheet(csv_path)
