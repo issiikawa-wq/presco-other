@@ -130,14 +130,12 @@ def _attempt_login_and_download(email, password, attempt_num, max_attempts):
             # ページが完全に読み込まれるまで待機
             time.sleep(5)
             
-            # 集計基準を「成果判定日時」に変更
-            print(f"[{datetime.now()}] 集計基準を「成果判定日時」に変更します")
-            try:
-                selectors = [
-                    'input[name="dateType"][value="judgeDate"]',
-                    'input[type="radio"][value="judgeDate"]',
-                    'label:has-text("成果判定日時")'
-                ]
+            # 集計基準を「成果発生日時」に変更
+selectors = [
+    'input[name="dateType"][value="actionDate"]',
+    'input[type="radio"][value="actionDate"]',
+    'label:has-text("成果発生日時")'
+]
                 clicked = False
                 for selector in selectors:
                     try:
