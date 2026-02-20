@@ -4,7 +4,6 @@ import csv
 import json
 import re
 from datetime import datetime
-from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
 import gspread
@@ -12,24 +11,26 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 
 # ===============================
-# Presco CSV取得（昨日 or 今日）
+# CSV取得（onclick直接指定）
 # ===============================
-def download_csv_for_period(page, period_text, save_path):
+def download_csv_for_period(page, period, save_path):
 
-    print(f"{period_text} を選択してCSV取得")
+    print(f"{period} を選択")
 
-    try:
-        page.click(f'button:has-text("{period_text}")', timeout=5000)
-    except:
-        page.click(f'text={period_text}', timeout=5000)
+    if period == "yesterday":
+        page.click('a[onclick="setYesterday()"]')
+    elif period == "today":
+        page.click('a[onclick="setToday()"]')
 
     time.sleep(1)
 
-    try:
-        page.click('button:has-text("検索条件で絞り込む")', timeout=5000)
-    except:
-        pass
+    # 期間が正しく変わったか確認（重要）
+    start_date = page.input_value('input[name="startDate"]')
+    end_date = page.input_value('input[name="endDate"]')
+    print("現在の期間:", start_date, "〜", end_date)
 
+    # 検索実行
+    page.click('button:has-text("検索条件で絞り込む")')
     time.sleep(5)
 
     page.wait_for_selector("#csv-link")
@@ -40,11 +41,11 @@ def download_csv_for_period(page, period_text, save_path):
     download = download_info.value
     download.save_as(save_path)
 
-    print(f"{period_text} CSV保存完了")
+    print(f"{period} CSV保存完了")
 
 
 # ===============================
-# ログイン & 2日分取得
+# ログイン＆2日分取得
 # ===============================
 def login_and_download():
 
@@ -94,13 +95,14 @@ def login_and_download():
 
             time.sleep(1)
 
-            # 昨日
             yesterday_path = "/tmp/presco_yesterday.csv"
-            download_csv_for_period(page, "昨日", yesterday_path)
-
-            # 今日
             today_path = "/tmp/presco_today.csv"
-            download_csv_for_period(page, "今日", today_path)
+
+            # 昨日取得
+            download_csv_for_period(page, "yesterday", yesterday_path)
+
+            # 今日取得
+            download_csv_for_period(page, "today", today_path)
 
             return yesterday_path, today_path
 
@@ -213,7 +215,7 @@ def upload_to_sheet(data):
 # ===============================
 def main():
 
-    print("昨日＋今日 2日分取得開始")
+    print("昨日＋今日 取得開始")
 
     yesterday_path, today_path = login_and_download()
 
