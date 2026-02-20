@@ -3,43 +3,53 @@ import time
 import csv
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright._impl._errors import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 
-# =====================================
-# Presco ログイン＆CSV取得
-# =====================================
-def login_and_download_csv(max_retries=3):
+# ===============================
+# Presco CSV取得（昨日 or 今日）
+# ===============================
+def download_csv_for_period(page, period_text, save_path):
 
-    print("=" * 60)
-    print(f"[{datetime.now()}] Presco自動同期開始")
-    print("=" * 60)
+    print(f"{period_text} を選択してCSV取得")
+
+    try:
+        page.click(f'button:has-text("{period_text}")', timeout=5000)
+    except:
+        page.click(f'text={period_text}', timeout=5000)
+
+    time.sleep(1)
+
+    try:
+        page.click('button:has-text("検索条件で絞り込む")', timeout=5000)
+    except:
+        pass
+
+    time.sleep(5)
+
+    page.wait_for_selector("#csv-link")
+
+    with page.expect_download() as download_info:
+        page.click("#csv-link")
+
+    download = download_info.value
+    download.save_as(save_path)
+
+    print(f"{period_text} CSV保存完了")
+
+
+# ===============================
+# ログイン & 2日分取得
+# ===============================
+def login_and_download():
 
     email = os.getenv("PRESCO_EMAIL")
     password = os.getenv("PRESCO_PASSWORD")
-
-    if not email or not password:
-        raise Exception("PRESCO_EMAIL または PRESCO_PASSWORD 未設定")
-
-    for attempt in range(max_retries):
-        try:
-            return _attempt_login_and_download(email, password)
-        except (PlaywrightError, PlaywrightTimeoutError):
-            if attempt < max_retries - 1:
-                wait = (attempt + 1) * 5
-                print(f"リトライします（{wait}秒待機）")
-                time.sleep(wait)
-            else:
-                raise
-
-
-def _attempt_login_and_download(email, password):
 
     with sync_playwright() as p:
 
@@ -69,86 +79,38 @@ def _attempt_login_and_download(email, password):
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 成果発生日時に変更
-            try:
-                selectors = [
-                    'input[name="dateType"][value="actionDate"]',
-                    'input[type="radio"][value="actionDate"]',
-                    'label:has-text("成果発生日時")'
-                ]
-                for selector in selectors:
-                    try:
-                        page.click(selector, timeout=5000)
-                        break
-                    except:
-                        continue
-            except:
-                pass
+            # 成果発生日時へ変更
+            selectors = [
+                'input[name="dateType"][value="actionDate"]',
+                'input[type="radio"][value="actionDate"]',
+                'label:has-text("成果発生日時")'
+            ]
+            for selector in selectors:
+                try:
+                    page.click(selector, timeout=5000)
+                    break
+                except:
+                    continue
 
             time.sleep(1)
 
-            # 1週間選択
-            try:
-                page.click('button:has-text("1週間")', timeout=5000)
-            except:
-                pass
+            # 昨日
+            yesterday_path = "/tmp/presco_yesterday.csv"
+            download_csv_for_period(page, "昨日", yesterday_path)
 
-            time.sleep(1)
+            # 今日
+            today_path = "/tmp/presco_today.csv"
+            download_csv_for_period(page, "今日", today_path)
 
-            # 検索
-            try:
-                page.click('button:has-text("検索条件で絞り込む")', timeout=5000)
-            except:
-                pass
-
-            time.sleep(5)
-
-            page.wait_for_selector("#csv-link")
-
-            with page.expect_download() as download_info:
-                page.click("#csv-link")
-
-            download = download_info.value
-            csv_path = "/tmp/presco.csv"
-            download.save_as(csv_path)
-
-            print("CSV取得完了")
-
-            return csv_path
+            return yesterday_path, today_path
 
         finally:
             browser.close()
 
 
-# =====================================
-# カットオフ（昨日0時以降）
-# =====================================
-def get_cutoff_datetime():
-
-    JST = ZoneInfo("Asia/Tokyo")
-    now = datetime.now(JST)
-
-    yesterday = (now - timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-
-    return yesterday
-
-
-def is_after_cutoff(date_string, cutoff):
-
-    try:
-        JST = ZoneInfo("Asia/Tokyo")
-        dt = datetime.strptime(date_string, "%Y/%m/%d %H:%M:%S")
-        dt = dt.replace(tzinfo=JST)
-        return dt >= cutoff
-    except:
-        return False
-
-
-# =====================================
-# CSV変換
-# =====================================
+# ===============================
+# CSVマージ
+# ===============================
 def extract_gclid(url):
     if not url:
         return ""
@@ -156,17 +118,9 @@ def extract_gclid(url):
     return match.group(1) if match else ""
 
 
-def transform_csv(csv_path):
+def merge_csv(yesterday_path, today_path):
 
     target_sites = ["Fast Baito 介護特化", "Fast Baito"]
-    cutoff = get_cutoff_datetime()
-
-    print("カットオフ:", cutoff)
-
-    with open(csv_path, "r", encoding="shift_jis", errors="ignore") as f:
-        reader = list(csv.reader(f))
-
-    data = reader[1:]  # ヘッダー除外
 
     results = []
     results.append(["Parameters:TimeZone=Asia/Tokyo"])
@@ -180,53 +134,57 @@ def transform_csv(csv_path):
 
     seen = set()
 
-    for row in data:
+    for path in [yesterday_path, today_path]:
 
-        if len(row) < 18:
-            continue
+        with open(path, "r", encoding="shift_jis", errors="ignore") as f:
+            reader = list(csv.reader(f))
 
-        site = row[5]
-        if site not in target_sites:
-            continue
+        data = reader[1:]
 
-        action_datetime = row[3]
+        for row in data:
 
-        if not is_after_cutoff(action_datetime, cutoff):
-            continue
+            if len(row) < 18:
+                continue
 
-        gclid = extract_gclid(row[12])
-        if not gclid:
-            continue
+            site = row[5]
+            if site not in target_sites:
+                continue
 
-        if gclid in seen:
-            continue
+            gclid = extract_gclid(row[12])
+            if not gclid:
+                continue
 
-        seen.add(gclid)
+            if gclid in seen:
+                continue
 
-        if site == "Fast Baito 介護特化":
-            value = "3000"
-            conv_name = "介護オフラインCV"
-        else:
-            value = str(int(float(row[17])))
-            conv_name = "オフラインCV"
+            seen.add(gclid)
 
-        results.append([
-            gclid,
-            conv_name,
-            action_datetime,
-            value,
-            "JPY"
-        ])
+            action_datetime = row[3]
 
-    print("抽出件数:", len(results) - 2)
+            if site == "Fast Baito 介護特化":
+                value = "3000"
+                conv_name = "介護オフラインCV"
+            else:
+                value = str(int(float(row[17])))
+                conv_name = "オフラインCV"
+
+            results.append([
+                gclid,
+                conv_name,
+                action_datetime,
+                value,
+                "JPY"
+            ])
+
+    print("最終抽出件数:", len(results) - 2)
 
     return results
 
 
-# =====================================
-# Google Sheets 書き込み
-# =====================================
-def upload_to_sheet(csv_path):
+# ===============================
+# Sheets書き込み
+# ===============================
+def upload_to_sheet(data):
 
     creds_json = os.getenv("GOOGLE_CREDENTIALS")
     sheet_id = os.getenv("SPREADSHEET_ID")
@@ -244,20 +202,25 @@ def upload_to_sheet(csv_path):
     sh = gc.open_by_key(sheet_id)
     ws = sh.worksheet("成果情報_その他")
 
-    data = transform_csv(csv_path)
-
     ws.clear()
     ws.update(values=data, range_name="A1")
 
     print("スプレッドシート更新完了")
 
 
-# =====================================
+# ===============================
 # main
-# =====================================
+# ===============================
 def main():
-    csv_path = login_and_download_csv()
-    upload_to_sheet(csv_path)
+
+    print("昨日＋今日 2日分取得開始")
+
+    yesterday_path, today_path = login_and_download()
+
+    merged_data = merge_csv(yesterday_path, today_path)
+
+    upload_to_sheet(merged_data)
+
     print("完了")
 
 
