@@ -6,42 +6,15 @@ import re
 from datetime import datetime
 
 from playwright.sync_api import sync_playwright
+from playwright._impl._errors import Error as PlaywrightError
+
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 
-# ===============================
-# CSV取得（onclick直接指定）
-# ===============================
-def download_csv_for_period(page, period, save_path):
-
-    print(f"{period} を選択")
-
-    if period == "yesterday":
-        page.click('a[onclick="setYesterday()"]')
-    elif period == "today":
-        page.click('a[onclick="setToday()"]')
-
-    time.sleep(1)
-
-    # 検索実行
-    page.click('button:has-text("検索条件で絞り込む")')
-    time.sleep(5)
-
-    page.wait_for_selector("#csv-link")
-
-    with page.expect_download() as download_info:
-        page.click("#csv-link")
-
-    download = download_info.value
-    download.save_as(save_path)
-
-    print(f"{period} CSV保存完了")
-
-
-# ===============================
-# ログイン＆2日分取得
-# ===============================
+# ==========================================
+# Presco ログイン + 2日分取得
+# ==========================================
 def login_and_download():
 
     email = os.getenv("PRESCO_EMAIL")
@@ -51,31 +24,53 @@ def login_and_download():
 
         browser = p.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process"
+            ]
         )
 
-        context = browser.new_context()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/120.0.0.0 Safari/537.36"
+        )
+
         page = context.new_page()
 
         try:
-            # ログイン
-            page.goto("https://presco.ai/partner/")
-            page.wait_for_selector('input[name="username"]')
+            # ----------------------------------
+            # ログインページアクセス（リトライ）
+            # ----------------------------------
+            for i in range(3):
+                try:
+                    page.goto("https://presco.ai/partner/", timeout=60000)
+                    break
+                except PlaywrightError:
+                    print("ログインページアクセス再試行")
+                    time.sleep(5)
+
+            page.wait_for_selector('input[name="username"]', timeout=30000)
 
             page.fill('input[name="username"]', email)
             page.fill('input[name="password"]', password)
 
-            with page.expect_navigation():
+            with page.expect_navigation(timeout=60000):
                 page.click('input[type="submit"]')
 
             print("ログイン成功")
 
-            # 成果一覧へ
-            page.goto("https://presco.ai/partner/actionLog/list")
+            # ----------------------------------
+            # 成果一覧ページへ
+            # ----------------------------------
+            page.goto("https://presco.ai/partner/actionLog/list", timeout=60000)
             page.wait_for_load_state("networkidle")
             time.sleep(3)
 
-            # 成果発生日時へ変更
+            # 成果発生日時に変更
             selectors = [
                 'input[name="dateType"][value="actionDate"]',
                 'input[type="radio"][value="actionDate"]',
@@ -93,10 +88,7 @@ def login_and_download():
             yesterday_path = "/tmp/presco_yesterday.csv"
             today_path = "/tmp/presco_today.csv"
 
-            # 昨日取得
             download_csv_for_period(page, "yesterday", yesterday_path)
-
-            # 今日取得
             download_csv_for_period(page, "today", today_path)
 
             return yesterday_path, today_path
@@ -105,9 +97,37 @@ def login_and_download():
             browser.close()
 
 
-# ===============================
+# ==========================================
+# 期間指定クリック（onclick直指定）
+# ==========================================
+def download_csv_for_period(page, period, save_path):
+
+    print(f"{period} を選択")
+
+    if period == "yesterday":
+        page.click('a[onclick="setYesterday()"]', timeout=10000)
+    elif period == "today":
+        page.click('a[onclick="setToday()"]', timeout=10000)
+
+    time.sleep(1)
+
+    page.click('button:has-text("検索条件で絞り込む")', timeout=10000)
+    time.sleep(5)
+
+    page.wait_for_selector("#csv-link", timeout=30000)
+
+    with page.expect_download(timeout=60000) as download_info:
+        page.click("#csv-link")
+
+    download = download_info.value
+    download.save_as(save_path)
+
+    print(f"{period} CSV保存完了")
+
+
+# ==========================================
 # CSVマージ
-# ===============================
+# ==========================================
 def extract_gclid(url):
     if not url:
         return ""
@@ -178,9 +198,9 @@ def merge_csv(yesterday_path, today_path):
     return results
 
 
-# ===============================
-# Sheets書き込み
-# ===============================
+# ==========================================
+# Google Sheets 書き込み
+# ==========================================
 def upload_to_sheet(data):
 
     creds_json = os.getenv("GOOGLE_CREDENTIALS")
@@ -205,9 +225,9 @@ def upload_to_sheet(data):
     print("スプレッドシート更新完了")
 
 
-# ===============================
+# ==========================================
 # main
-# ===============================
+# ==========================================
 def main():
 
     print("昨日＋今日 取得開始")
