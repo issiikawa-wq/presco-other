@@ -35,10 +35,10 @@ def login_and_download_csv(max_retries=3):
             return _attempt_login_and_download(email, password, attempt + 1, max_retries)
         except (PlaywrightError, PlaywrightTimeoutError) as e:
             error_str = str(e)
-            if "ERR_NETWORK_CHANGED" in error_str or "net::ERR" in error_str:
+            if "ERR_NETWORK_CHANGED" in error_str or "net::ERR" in error_str or "Timeout" in error_str:
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 5  # 5秒、10秒、15秒
-                    print(f"[{datetime.now()}] 試行 {attempt + 1}/{max_retries} 失敗: ネットワークエラー")
+                    print(f"[{datetime.now()}] 試行 {attempt + 1}/{max_retries} 失敗: ネットワークエラーまたはタイムアウト")
                     print(f"[{datetime.now()}] {wait_time}秒待機してリトライします...")
                     time.sleep(wait_time)
                     continue
@@ -46,7 +46,7 @@ def login_and_download_csv(max_retries=3):
                     print(f"[{datetime.now()}] 試行 {attempt + 1}/{max_retries} 失敗: 最大リトライ回数に達しました")
                     raise
             else:
-                # ネットワークエラー以外はリトライせずに即座に例外を投げる
+                # その他のエラーはリトライせずに即座に例外を投げる
                 raise
         except Exception as e:
             # その他の例外もリトライせずに即座に投げる
@@ -95,9 +95,8 @@ def _attempt_login_and_download(email, password, attempt_num, max_attempts):
             page.fill('input[name="username"]', email)
             page.fill('input[name="password"]', password)
             
-            # ネットワークが安定するまで待機
-            time.sleep(2)
-            page.wait_for_load_state("networkidle", timeout=30000)
+            # 少し待機
+            time.sleep(3)
             
             # ログインボタンをクリック
             print(f"[{datetime.now()}] ログインボタンをクリックします")
@@ -128,8 +127,7 @@ def _attempt_login_and_download(email, password, attempt_num, max_attempts):
             page.goto('https://presco.ai/partner/actionLog/list', timeout=90000)
             
             # ページが完全に読み込まれるまで待機
-            page.wait_for_load_state("networkidle", timeout=30000)
-            time.sleep(3)
+            time.sleep(5)
             
             # 集計基準を「成果判定日時」に変更
             print(f"[{datetime.now()}] 集計基準を「成果判定日時」に変更します")
