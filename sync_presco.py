@@ -181,14 +181,19 @@ def transform_csv(csv_path):
 
     for row in data:
 
-        if len(row) < 18:
-            continue
+    if len(row) < 18:
+        continue
 
-        site = row[5]
-        if site not in target_sites:
-            continue
+    site = row[5]
 
-        action_datetime = row[3]
+    # ▼▼▼ ここに追加 ▼▼▼
+    action_datetime = row[3]
+    print("DEBUG DATE:", action_datetime)
+    # ▲▲▲ ここまで ▲▲▲
+
+    if site not in target_sites:
+        continue
+
 
         if not is_after_cutoff(action_datetime, cutoff):
             continue
