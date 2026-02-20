@@ -3,7 +3,7 @@ import time
 import csv
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
@@ -12,7 +12,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 
 # =====================================
-# Presco ログイン＆CSV取得（1週間）
+# Presco ログイン＆CSV取得（昨日〜今日）
 # =====================================
 def login_and_download_csv():
 
@@ -73,8 +73,17 @@ def login_and_download_csv():
 
             time.sleep(1)
 
-            # 🔥 1週間（onclick直接指定）
-            page.click('a[onclick="setWeek()"]', timeout=10000)
+            # 🔥 昨日と今日の日付を動的に生成
+            JST = ZoneInfo("Asia/Tokyo")
+            today = datetime.now(JST)
+            yesterday = today - timedelta(days=1)
+            
+            date_from = yesterday.strftime("%Y/%m/%d")
+            date_to = today.strftime("%Y/%m/%d")
+
+            # 🔥 カレンダーUIを無視して、直接inputのvalueを書き換える
+            page.evaluate(f'document.getElementById("dateTimeFrom").value = "{date_from}"')
+            page.evaluate(f'document.getElementById("dateTimeTo").value = "{date_to}"')
             time.sleep(1)
 
             # 検索ボタン（div）
@@ -90,7 +99,7 @@ def login_and_download_csv():
             csv_path = "/tmp/presco_week.csv"
             download.save_as(csv_path)
 
-            print("CSV取得完了")
+            print(f"CSV取得完了（対象期間: {date_from} 〜 {date_to}）")
 
             return csv_path
 
@@ -99,10 +108,11 @@ def login_and_download_csv():
 
 
 # =====================================
-# 2026/02/20 00:00:00 以降フィルタ
+# カットオフフィルタ
 # =====================================
 def get_cutoff_datetime():
     JST = ZoneInfo("Asia/Tokyo")
+    # ※ここは固定にしていますが、必要に応じて変更してください
     return datetime(2026, 2, 20, 0, 0, 0, tzinfo=JST)
 
 
