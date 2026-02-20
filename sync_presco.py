@@ -4,18 +4,20 @@ import csv
 import json
 import re
 from datetime import datetime, timedelta
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright._impl._errors import Error as PlaywrightError
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
 
-def login_and_download_csv():
+def login_and_download_csv(max_retries=3):
     """
     Presco.aiにログインしてCSVをダウンロード
-    集計基準：成果判定日時、期間：1週間で検索
+    集計基準:成果判定日時、期間:1週間で検索
+    リトライ機能付き
     """
     print("=" * 60)
-    print(f"[{datetime.now()}] Presco自動同期を開始します（介護特化・Fast Baito）")
+    print(f"[{datetime.now()}] Presco自動同期を開始します(介護特化・Fast Baito)")
     print("=" * 60)
     
     # 環境変数から認証情報を取得
@@ -28,8 +30,37 @@ def login_and_download_csv():
     print(f"[{datetime.now()}] 処理を開始します")
     print(f"[{datetime.now()}] 認証情報を確認しました")
     
+    for attempt in range(max_retries):
+        try:
+            return _attempt_login_and_download(email, password, attempt + 1, max_retries)
+        except (PlaywrightError, PlaywrightTimeoutError) as e:
+            error_str = str(e)
+            if "ERR_NETWORK_CHANGED" in error_str or "net::ERR" in error_str:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 5  # 5秒、10秒、15秒
+                    print(f"[{datetime.now()}] 試行 {attempt + 1}/{max_retries} 失敗: ネットワークエラー")
+                    print(f"[{datetime.now()}] {wait_time}秒待機してリトライします...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"[{datetime.now()}] 試行 {attempt + 1}/{max_retries} 失敗: 最大リトライ回数に達しました")
+                    raise
+            else:
+                # ネットワークエラー以外はリトライせずに即座に例外を投げる
+                raise
+        except Exception as e:
+            # その他の例外もリトライせずに即座に投げる
+            raise
+
+
+def _attempt_login_and_download(email, password, attempt_num, max_attempts):
+    """
+    ログインとダウンロードの1回の試行
+    """
+    print(f"[{datetime.now()}] 試行 {attempt_num}/{max_attempts} を開始")
+    
     with sync_playwright() as p:
-        # ブラウザを起動（GitHub Actions用の設定）
+        # ブラウザを起動(GitHub Actions用の設定)
         print(f"[{datetime.now()}] ブラウザを起動します")
         browser = p.chromium.launch(
             headless=True,
@@ -46,17 +77,17 @@ def login_and_download_csv():
             viewport={'width': 1920, 'height': 1080},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         )
-        context.set_default_timeout(60000)  # 60秒
+        context.set_default_timeout(90000)  # 90秒に延長
         
         page = context.new_page()
         
         try:
             # ログインページにアクセス
             print(f"[{datetime.now()}] ログインページにアクセスします")
-            page.goto('https://presco.ai/partner/', timeout=60000)
+            page.goto('https://presco.ai/partner/', timeout=90000)
             
             # ログインフォームが表示されるまで待機
-            page.wait_for_selector('input[name="username"]', timeout=10000)
+            page.wait_for_selector('input[name="username"]', timeout=15000)
             print(f"[{datetime.now()}] ログインフォームを確認しました")
             
             # ログイン情報を入力
@@ -64,10 +95,20 @@ def login_and_download_csv():
             page.fill('input[name="username"]', email)
             page.fill('input[name="password"]', password)
             
+            # ネットワークが安定するまで待機
+            time.sleep(2)
+            page.wait_for_load_state("networkidle", timeout=30000)
+            
             # ログインボタンをクリック
             print(f"[{datetime.now()}] ログインボタンをクリックします")
-            with page.expect_navigation(timeout=60000):
-                page.click('input[type="submit"][value="ログイン"]')
+            
+            # ナビゲーション待機のタイムアウトを延長
+            try:
+                with page.expect_navigation(timeout=120000):  # 120秒に延長
+                    page.click('input[type="submit"][value="ログイン"]')
+            except PlaywrightTimeoutError:
+                # タイムアウトしてもページ遷移している可能性があるので続行
+                print(f"[{datetime.now()}] 警告: ナビゲーション待機がタイムアウトしましたが続行します")
             
             # ログイン後のページ遷移を待機
             time.sleep(5)
@@ -84,9 +125,10 @@ def login_and_download_csv():
             
             # 成果一覧ページに移動
             print(f"[{datetime.now()}] 成果一覧ページに移動します")
-            page.goto('https://presco.ai/partner/actionLog/list', timeout=60000)
+            page.goto('https://presco.ai/partner/actionLog/list', timeout=90000)
             
             # ページが完全に読み込まれるまで待機
+            page.wait_for_load_state("networkidle", timeout=30000)
             time.sleep(3)
             
             # 集計基準を「成果判定日時」に変更
@@ -100,13 +142,13 @@ def login_and_download_csv():
                 clicked = False
                 for selector in selectors:
                     try:
-                        page.click(selector, timeout=3000)
+                        page.click(selector, timeout=5000)
                         clicked = True
                         break
                     except:
                         continue
                 if not clicked:
-                    print(f"[{datetime.now()}] 警告: 集計基準の変更に失敗（デフォルトのまま続行）")
+                    print(f"[{datetime.now()}] 警告: 集計基準の変更に失敗(デフォルトのまま続行)")
             except Exception as e:
                 print(f"[{datetime.now()}] 警告: 集計基準の変更中にエラー - {str(e)}")
             
@@ -125,13 +167,13 @@ def login_and_download_csv():
                 clicked = False
                 for selector in selectors:
                     try:
-                        page.click(selector, timeout=3000)
+                        page.click(selector, timeout=5000)
                         clicked = True
                         break
                     except:
                         continue
                 if not clicked:
-                    print(f"[{datetime.now()}] 警告: 期間の変更に失敗（デフォルトのまま続行）")
+                    print(f"[{datetime.now()}] 警告: 期間の変更に失敗(デフォルトのまま続行)")
             except Exception as e:
                 print(f"[{datetime.now()}] 警告: 期間の変更中にエラー - {str(e)}")
             
@@ -150,7 +192,7 @@ def login_and_download_csv():
                 clicked = False
                 for selector in selectors:
                     try:
-                        page.click(selector, timeout=3000)
+                        page.click(selector, timeout=5000)
                         clicked = True
                         break
                     except:
@@ -175,7 +217,7 @@ def login_and_download_csv():
             
             # CSVダウンロード
             print(f"[{datetime.now()}] CSVダウンロードを開始します")
-            with page.expect_download(timeout=60000) as download_info:
+            with page.expect_download(timeout=90000) as download_info:
                 page.click('#csv-link')
                 print(f"[{datetime.now()}] CSVダウンロードボタンをクリックしました")
             
@@ -195,13 +237,15 @@ def login_and_download_csv():
             if file_size == 0:
                 raise Exception('ダウンロードしたCSVファイルが空です')
             
+            print(f"[{datetime.now()}] 試行 {attempt_num}/{max_attempts} 成功")
             return csv_path
             
         except Exception as e:
             # エラー時はスクリーンショットを保存
             try:
-                page.screenshot(path='/tmp/error_screenshot.png')
-                print(f"[{datetime.now()}] エラー時のスクリーンショットを保存しました")
+                screenshot_path = f'/tmp/error_screenshot_attempt{attempt_num}.png'
+                page.screenshot(path=screenshot_path)
+                print(f"[{datetime.now()}] エラー時のスクリーンショットを保存しました: {screenshot_path}")
             except:
                 pass
             raise e
@@ -227,11 +271,11 @@ def extract_gclid(referrer_url):
 def format_datetime_for_google(date_string):
     """
     日時文字列をGoogle広告用フォーマットに変換
-    YYYY/MM/DD HH:MM:SS 形式のまま返す（タイムゾーン指定なし）
+    YYYY/MM/DD HH:MM:SS 形式のまま返す(タイムゾーン指定なし)
     """
     try:
         # 入力: YYYY/MM/DD HH:MM:SS
-        # 出力: YYYY/MM/DD HH:MM:SS（そのまま）
+        # 出力: YYYY/MM/DD HH:MM:SS(そのまま)
         dt = datetime.strptime(date_string, '%Y/%m/%d %H:%M:%S')
         return dt.strftime('%Y/%m/%d %H:%M:%S')
     except Exception as e:
@@ -245,9 +289,9 @@ def get_date_filter_range():
     日付フィルタの範囲を取得
     
     初回実行時: 2026/02/20 00:00:00 以降
-    通常実行時: 前日0時以降（前日分+当日分）
+    通常実行時: 前日0時以降(前日分+当日分)
     """
-    # 初回実行の基準日時（2026/02/20 00:00:00）
+    # 初回実行の基準日時(2026/02/20 00:00:00)
     INITIAL_CUTOFF = datetime(2026, 2, 20, 0, 0, 0)
     
     # 現在時刻
@@ -310,14 +354,14 @@ def transform_csv_data(csv_path):
     # 変換後のデータ
     new_data = []
     
-    # GCLID重複チェック用（同一実行内での重複を防ぐ）
+    # GCLID重複チェック用(同一実行内での重複を防ぐ)
     seen_gclids = set()
     duplicate_count = 0
     
-    # パラメータ行（1行目）
+    # パラメータ行(1行目)
     parameter_row = ['Parameters:TimeZone=Asia/Tokyo']
     
-    # ヘッダー行（2行目）
+    # ヘッダー行(2行目)
     header = [
         'Google Click ID',
         'Conversion Name',
@@ -326,7 +370,7 @@ def transform_csv_data(csv_path):
         'Conversion Currency'
     ]
     
-    # CSVを読み込み（複数のエンコーディングを試行）
+    # CSVを読み込み(複数のエンコーディングを試行)
     encodings = ['utf-8-sig', 'utf-8', 'shift_jis', 'cp932']
     data = None
     
@@ -351,8 +395,8 @@ def transform_csv_data(csv_path):
     print(f"[{datetime.now()}] 総データ数: {total_rows}行")
     
     # 各行を処理
-    for i, row in enumerate(data, start=2):  # 行番号は2から（ヘッダー除く）
-        if len(row) < 18:  # R列（index 17）まで必要
+    for i, row in enumerate(data, start=2):  # 行番号は2から(ヘッダー除く)
+        if len(row) < 18:  # R列(index 17)まで必要
             continue
         
         # F列: サイト名
@@ -392,14 +436,14 @@ def transform_csv_data(csv_path):
         # 日時を変換
         conversion_time = format_datetime_for_google(action_datetime)
         
-        # 成果報酬単価を取得（R列）
+        # 成果報酬単価を取得(R列)
         try:
             reward_price = int(float(row[17]))  # R列 = index 17
         except (ValueError, IndexError):
             reward_price = 0
-            print(f"[{datetime.now()}] 警告: 成果報酬単価を取得できません（行{i}） - デフォルト0を使用")
+            print(f"[{datetime.now()}] 警告: 成果報酬単価を取得できません(行{i}) - デフォルト0を使用")
         
-        # Conversion Value を決定（介護オフラインCVは固定3000、それ以外は成果報酬単価）
+        # Conversion Value を決定(介護オフラインCVは固定3000、それ以外は成果報酬単価)
         if conversion_name == '介護オフラインCV':
             conversion_value = '3000'
         else:
@@ -492,7 +536,7 @@ def upload_to_spreadsheet(csv_path):
         )
         print(f"[{datetime.now()}] ワークシート「{sheet_name}」を作成しました")
     
-    # CSVデータを変換（重複チェックは不要 - 毎回クリアするため）
+    # CSVデータを変換(重複チェックは不要 - 毎回クリアするため)
     transformed_data = transform_csv_data(csv_path)
     
     if not transformed_data:
