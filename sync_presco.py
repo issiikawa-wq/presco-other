@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from playwright._impl._errors import Error as PlaywrightError
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from zoneinfo import ZoneInfo  # ★ 追加（Python3.9+）
 
 
 def login_and_download_csv(max_retries=3):
@@ -284,32 +285,39 @@ def format_datetime_for_google(date_string):
 
 def get_date_filter_range():
     """
-    日付フィルタの範囲を取得
-    
+    日付フィルタの範囲を取得（JST基準）
+
     初回実行時: 2026/02/20 00:00:00 以降
-    通常実行時: 前日0時以降(前日分+当日分)
+    通常実行時: 前日0時以降（前日分+当日分）
     """
-    # 初回実行の基準日時(2026/02/20 00:00:00)
-    INITIAL_CUTOFF = datetime(2026, 2, 20, 0, 0, 0)
-    
-    # 現在時刻
-    now = datetime.now()
-    
-    # 前日の0時を計算
-    yesterday_start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # 初回カットオフ日時と前日0時のうち、遅い方を採用
+
+    JST = ZoneInfo("Asia/Tokyo")
+
+    # JST現在時刻
+    now = datetime.now(JST)
+
+    # 初回実行の基準日時（JSTで固定）
+    INITIAL_CUTOFF = datetime(2026, 2, 20, 0, 0, 0, tzinfo=JST)
+
+    # 前日0時（JST）
+    yesterday_start = (now - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+
+    # 遅い方を採用
     cutoff_datetime = max(INITIAL_CUTOFF, yesterday_start)
-    
+
     return cutoff_datetime
 
 
 def is_after_cutoff_date(date_string, cutoff_datetime):
     """
-    日付が指定日時以降かチェック
+    日付が指定日時以降かチェック（JST基準）
     """
     try:
+        JST = ZoneInfo("Asia/Tokyo")
         dt = datetime.strptime(date_string, '%Y/%m/%d %H:%M:%S')
+        dt = dt.replace(tzinfo=JST)  # ★ JST付与
         return dt >= cutoff_datetime
     except Exception as e:
         print(f"[{datetime.now()}] 日付比較エラー: {date_string} - {str(e)}")
