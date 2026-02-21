@@ -36,6 +36,9 @@ def login_and_download_csv():
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/120.0.0.0 Safari/537.36"
         )
+        
+        # ★タイムアウト対策：全体のデフォルト待機時間を60秒に延長
+        context.set_default_timeout(60000)
 
         page = context.new_page()
 
@@ -53,9 +56,9 @@ def login_and_download_csv():
             print("ログイン成功")
 
             # 成果一覧ページ
-            page.goto("https://presco.ai/partner/actionLog/list")
-            page.wait_for_load_state("networkidle")
-            time.sleep(3)
+            # ★タイムアウト対策：timeout=60000を追加し、networkidleを削除してsleepを5秒に
+            page.goto("https://presco.ai/partner/actionLog/list", timeout=60000)
+            time.sleep(5)
 
             # 成果発生日時に変更
             selectors = [
@@ -112,8 +115,10 @@ def login_and_download_csv():
 # =====================================
 def get_cutoff_datetime():
     JST = ZoneInfo("Asia/Tokyo")
-    # ※ここは固定にしていますが、必要に応じて変更してください
-    return datetime(2026, 2, 20, 0, 0, 0, tzinfo=JST)
+    # 🔥 自動運用のため、常に「昨日の0時0分0秒」をカットオフ日時に設定するよう変更
+    today = datetime.now(JST)
+    yesterday = today - timedelta(days=1)
+    return yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def is_after_cutoff(date_string, cutoff):
@@ -141,7 +146,7 @@ def transform_csv(csv_path):
     target_sites = ["Fast Baito 介護特化", "Fast Baito"]
     cutoff = get_cutoff_datetime()
 
-    print("カットオフ日時:", cutoff)
+    print("カットオフ日時:", cutoff.strftime("%Y/%m/%d %H:%M:%S"))
 
     with open(csv_path, "r", encoding="shift_jis", errors="ignore") as f:
         reader = list(csv.reader(f))
