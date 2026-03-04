@@ -1,8 +1,7 @@
 name: Presco Data Sync (介護特化・Fast Baito)
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'
+  # 定期実行(cron)を削除し、手動/APIからの実行のみに変更
   workflow_dispatch:
 
 jobs:
