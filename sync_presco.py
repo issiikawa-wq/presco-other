@@ -188,11 +188,12 @@ def transform_csv(csv_path):
 
         seen.add(gclid)
 
+        # ✅ 介護特化・通常どちらもCSVの値（row[17]）をそのまま使用
+        value = str(int(float(row[17])))
+
         if site == "Fast Baito 介護特化":
-            value = "3000"
             conv_name = "介護オフラインCV"
         else:
-            value = str(int(float(row[17])))
             conv_name = "オフラインCV"
 
         results.append([
