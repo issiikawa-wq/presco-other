@@ -60,19 +60,11 @@ def login_and_download_csv():
             page.goto("https://presco.ai/partner/actionLog/list", timeout=60000)
             time.sleep(5)
 
-            # 成果発生日時に変更
-            selectors = [
-                'input[name="dateType"][value="actionDate"]',
-                'input[type="radio"][value="actionDate"]',
-                'label:has-text("成果発生日時")'
-            ]
-
-            for selector in selectors:
-                try:
-                    page.click(selector, timeout=5000)
-                    break
-                except:
-                    continue
+            # 成果発生日時に変更（value="2" / id=searchType2）
+            try:
+                page.check("#searchType2", timeout=5000)
+            except Exception as e:
+                print("警告: 集計基準の変更中にエラー -", str(e))
 
             time.sleep(1)
 
