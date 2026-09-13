@@ -36,7 +36,7 @@ def login_and_download_csv():
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/120.0.0.0 Safari/537.36"
         )
-        
+
         # ★タイムアウト対策：全体のデフォルト待機時間を60秒に延長
         context.set_default_timeout(60000)
 
@@ -72,7 +72,7 @@ def login_and_download_csv():
             JST = ZoneInfo("Asia/Tokyo")
             today = datetime.now(JST)
             yesterday = today - timedelta(days=1)
-            
+
             date_from = yesterday.strftime("%Y/%m/%d")
             date_to = today.strftime("%Y/%m/%d")
 
@@ -135,7 +135,7 @@ def extract_gclid(url):
 
 def transform_csv(csv_path):
 
-    target_sites = ["Fast Baito 介護特化", "Fast Baito"]
+    target_sites = ["Fast Baito 介護特化", "Fast Baito", "スキマバイト.com"]
     cutoff = get_cutoff_datetime()
 
     print("カットオフ日時:", cutoff.strftime("%Y/%m/%d %H:%M:%S"))
