@@ -135,7 +135,14 @@ def extract_gclid(url):
 
 def transform_csv(csv_path):
 
-    target_sites = ["Fast Baito 介護特化", "Fast Baito", "スキマバイト.com"]
+    # サイト名（Prescoの表記と完全一致） → コンバージョン名
+    site_conv_map = {
+        "Fast Baito 介護特化": "介護オフラインCV",
+        "Fast Baito 介護特化（P-MAX）": "介護オフラインCV",
+        "Fast Baito": "オフラインCV",
+        "スキマバイト.com": "オフラインCV",
+    }
+
     cutoff = get_cutoff_datetime()
 
     print("カットオフ日時:", cutoff.strftime("%Y/%m/%d %H:%M:%S"))
@@ -163,7 +170,7 @@ def transform_csv(csv_path):
             continue
 
         site = row[5]
-        if site not in target_sites:
+        if site not in site_conv_map:
             continue
 
         action_datetime = row[3]
@@ -180,13 +187,10 @@ def transform_csv(csv_path):
 
         seen.add(gclid)
 
-        # ✅ 介護特化・通常どちらもCSVの値（row[17]）をそのまま使用
+        # ✅ 全サイトともCSVの値（row[17]）をそのまま使用
         value = str(int(float(row[17])))
 
-        if site == "Fast Baito 介護特化":
-            conv_name = "介護オフラインCV"
-        else:
-            conv_name = "オフラインCV"
+        conv_name = site_conv_map[site]
 
         results.append([
             gclid,
