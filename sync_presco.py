@@ -3,6 +3,7 @@ import time
 import csv
 import json
 import re
+import unicodedata
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -133,6 +134,11 @@ def extract_gclid(url):
     return match.group(1) if match else ""
 
 
+def normalize_site_name(name):
+    """全角/半角・前後の空白などの表記ゆれを吸収する"""
+    return unicodedata.normalize("NFKC", name).strip()
+
+
 def transform_csv(csv_path):
 
     # サイト名（Prescoの表記と完全一致） → コンバージョン名
@@ -142,12 +148,15 @@ def transform_csv(csv_path):
         "Fast Baito": "オフラインCV",
         "スキマバイト.com": "オフラインCV",
     }
+    # 表記ゆれ対策：キー側も正規化しておく
+    site_conv_map = {normalize_site_name(k): v for k, v in site_conv_map.items()}
 
     cutoff = get_cutoff_datetime()
 
     print("カットオフ日時:", cutoff.strftime("%Y/%m/%d %H:%M:%S"))
 
-    with open(csv_path, "r", encoding="shift_jis", errors="ignore") as f:
+    # shift_jis だと全角ハイフン等が別の文字になるため cp932 で読む
+    with open(csv_path, "r", encoding="cp932", errors="replace") as f:
         reader = list(csv.reader(f))
 
     data = reader[1:]
@@ -169,7 +178,7 @@ def transform_csv(csv_path):
         if len(row) < 18:
             continue
 
-        site = row[5]
+        site = normalize_site_name(row[5])
         if site not in site_conv_map:
             continue
 
@@ -180,6 +189,7 @@ def transform_csv(csv_path):
 
         gclid = extract_gclid(row[12])
         if not gclid:
+            print(f"  gclidなしで除外: {row[3]} | {row[5]}")
             continue
 
         if gclid in seen:
